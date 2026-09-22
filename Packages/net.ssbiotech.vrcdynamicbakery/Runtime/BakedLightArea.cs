@@ -4,53 +4,46 @@ using UnityEngine;
 using VRC.SDK3.UdonNetworkCalling;
 using VRC.Udon.Common.Interfaces;
 
-[Icon(IconPath)]
 [UdonBehaviourSyncMode(BehaviourSyncMode.Manual)]
 public class BakedLightArea : UdonSharpBehaviour {
-    private const string IconPath = "Packages/com.ssbiotech.vrcdynamicbakery/Editor/BakedLightArea icon.png";
-    public GameObject[] bakedObjects;
-        
     [HideInInspector] public Renderer[] renderers;
     [HideInInspector] public Vector4[] lightmapScale;
-    [HideInInspector] public ReflectionProbe[] probes;
-    [HideInInspector] public BakedLightConfig[] configs;
-    [HideInInspector] public BakedLightInstance[] instances;
+    [HideInInspector] public int[] lightmapIndices;
     [HideInInspector] public int lightmapSize;
-    [HideInInspector] public BakedLightConfig[] activeConfigs;
-        
+
     [HideInInspector] [UdonSynced] public int selection;
-        
+
     public MaterialPropertyBlock Block;
     private BakedLightInstance _activeInstance;
     private bool _initialized;
 
     private void Start() {
         Block = new MaterialPropertyBlock();
-        Activate(0);
+        Activate(0, false);
     }
 
     public override void OnDeserialization() {
-        if (!_initialized) Activate(selection);
+        if (!_initialized) Activate(selection, false);
         _initialized = true;
     }
 
-    public void Toggle(BakedLightConfig newConfig) {
+    public void Toggle(BakedLightConfig newConfig, bool synced = true) {
         // ReSharper disable once LoopCanBeConvertedToQuery
-        foreach (var config in activeConfigs)
-            if (config == newConfig)
+        foreach (var group in GetComponentsInChildren<BakedLightGroup>(false))
+            if (group.selection == newConfig)
                 return;
         BakedLightInstance matchingInstance = null;
-        foreach (var instance in instances) {
+        foreach (var instance in GetComponentsInChildren<BakedLightInstance>(false)) {
             var instanceMatch = true;
             foreach (var config in instance.configs) {
                 var configMatch = config == newConfig;
                 // ReSharper disable once LoopCanBeConvertedToQuery
-                foreach (var activeConfig in activeConfigs) {
-                    if (activeConfig != config) continue;
+                foreach (var group in GetComponentsInChildren<BakedLightGroup>(false)) {
+                    if (group.selection != config) continue;
                     configMatch = true;
                     break;
                 }
-                if (configMatch && config != newConfig.group.selection) continue;
+                if (configMatch && config != newConfig.GetComponentInParent<BakedLightGroup>(false).selection) continue;
                 instanceMatch = false;
                 break;
             }
@@ -59,22 +52,27 @@ public class BakedLightArea : UdonSharpBehaviour {
             break;
         }
         if (matchingInstance == null) return;
-        SendCustomNetworkEvent(NetworkEventTarget.All, nameof(Activate), matchingInstance.index);
+        if (synced)
+            SendCustomNetworkEvent(
+                NetworkEventTarget.All,
+                nameof(Activate),
+                matchingInstance.transform.GetSiblingIndex(),
+                false
+            );
+        else Activate(matchingInstance.transform.GetSiblingIndex(), false);
     }
 
     [NetworkCallable]
-    public void Activate(int index) {
-        var instance = instances[index];
-        if (_activeInstance == instance) return;
+    public void Activate(int index, bool force) {
+        var instance = GetComponentsInChildren<BakedLightInstance>(false)[index];
+        if (!force && _activeInstance == instance) return;
         selection = index;
         RequestSerialization();
         _activeInstance = instance;
         foreach (var config in instance.configs)
-            config.group.selection = config;
-        activeConfigs = instance.configs;
-        foreach (var config in configs) config.SetObjectVisibility(false);
-        instance.SetLightmaps(renderers,lightmapScale, Block);
-        foreach (var probe in probes) probe.RenderProbe();
+            config.GetComponentInParent<BakedLightGroup>(false).selection = config;
+        foreach (var config in GetComponentsInChildren<BakedLightConfig>(false)) config.SetObjectVisibility(false);
+        instance.SetLightmaps(renderers, lightmapScale, lightmapIndices, Block);
     }
 
 #if !COMPILER_UDONSHARP && UNITY_EDITOR
@@ -83,15 +81,11 @@ public class BakedLightArea : UdonSharpBehaviour {
     internal class ManagerEditor : Editor {
         public override void OnInspectorGUI() {
             serializedObject.Update();
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("bakedObjects"));
             _debugFoldout = EditorGUILayout.Foldout(_debugFoldout, "Debug");
             if (_debugFoldout) {
                 EditorGUILayout.PropertyField(serializedObject.FindProperty("renderers"));
                 EditorGUILayout.PropertyField(serializedObject.FindProperty("lightmapScale"));
-                EditorGUILayout.PropertyField(serializedObject.FindProperty("probes"));
-                EditorGUILayout.PropertyField(serializedObject.FindProperty("configs"));
-                EditorGUILayout.PropertyField(serializedObject.FindProperty("instances"));
-                EditorGUILayout.PropertyField(serializedObject.FindProperty("activeConfigs"));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty("lightmapIndices"));
             }
             serializedObject.ApplyModifiedProperties();
         }

@@ -5,11 +5,11 @@ using UnityEngine;
 
 [UdonBehaviourSyncMode(BehaviourSyncMode.Manual)]
 public class BakedLightConfig : UdonSharpBehaviour {
-    public BakedLightGroup group;
     public Material bakedSkybox;
+    public Color fogColor;
+    public float fogDensity;
     public GameObject[] toggledObjects;
         
-    [HideInInspector] public BakedLightArea area;
     [HideInInspector] public GameObject[] nonStaticObjects;
     [HideInInspector] public Renderer[] staticRenderers;
     [HideInInspector] public Collider[] staticColliders;
@@ -37,7 +37,7 @@ public class BakedLightConfig : UdonSharpBehaviour {
     }
 
     public void PipelineSetLightVisibility(bool visible) {
-        foreach (var component in toggledObjects.SelectMany(it => it.GetComponentsInChildren<Light>())
+        foreach (var component in toggledObjects.SelectMany(it => it.GetComponentsInChildren<Light>(true))
             .Where(it => it.lightmapBakeType == LightmapBakeType.Baked)
             .ToArray())
             component.enabled = visible;
@@ -48,12 +48,12 @@ public class BakedLightConfig : UdonSharpBehaviour {
     internal class InstanceEditor : Editor {
         public override void OnInspectorGUI() {
             serializedObject.Update();
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("group"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("bakedSkybox"));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("fogColor"));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("fogDensity"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("toggledObjects"));
             _debugFoldout = EditorGUILayout.Foldout(_debugFoldout, "Debug");
             if (_debugFoldout) {
-                EditorGUILayout.PropertyField(serializedObject.FindProperty("area"));
                 EditorGUILayout.PropertyField(serializedObject.FindProperty("nonStaticObjects"));
                 EditorGUILayout.PropertyField(serializedObject.FindProperty("staticRenderers"));
                 EditorGUILayout.PropertyField(serializedObject.FindProperty("staticColliders"));
