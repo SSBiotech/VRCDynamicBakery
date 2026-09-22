@@ -1,12 +1,12 @@
 {
   "name": "net.ssbiotech.vrcdynamicbakery",
   "displayName": "VRCDynamicBakery",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "unity": "2022.3",
   "description": "Dynamic Baked Lights for VRChat",
   "gitDependencies": {},
   "vpmDependencies": {
-    "com.vrchat.worlds": "3.10.3"
+    "com.vrchat.worlds": "3.10.5"
   },
   "author": {
     "name": "S&S Biotech Inc.",
