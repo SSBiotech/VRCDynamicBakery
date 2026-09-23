@@ -27,7 +27,7 @@ public class BakedLightInstance : UdonSharpBehaviour {
         for (var meshIdx = 0; meshIdx < meshes.Length; ++meshIdx) {
             var mesh = meshes[meshIdx];
             if (mesh == null) continue;
-            var idx = mesh.lightmapIndex;
+            var idx = lightmapIndices[meshIdx];
             if (idx < 0 || idx >= lightmaps.Length) continue;
             mesh.GetPropertyBlock(block);
             // ReSharper disable once Unity.PreferAddressByIdToGraphicsParams

@@ -1,117 +1,130 @@
 ﻿#if UNITY_EDITOR
 using UnityEditor;
-using static UnityEditor.EditorUtility;
 #endif
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
-using static UnityEngine.GUILayout;
 
 namespace Editor {
 #if UNITY_EDITOR
     public class VrcDynamicBakery : EditorWindow {
-        [MenuItem("VRC Dynamic Bakery/Open Bakery")]
+        private static FilterMode _filtering;
+        private static bool _crunchCompression;
+        private static int _compressionQuality;
+
+        [MenuItem("VRC Dynamic Bakery/Preferences")]
         public static void ShowWindow() {
-            var window = GetWindow<VrcDynamicBakery>();
-            window.titleContent = new GUIContent("VRC Dynamic Bakery");
-            window.Show();
+            GetWindow<VrcDynamicBakery>("VRC Dynamic Bakery");
         }
 
         private void OnEnable() {
-            EditorApplication.hierarchyChanged += VerifyState;
-            EditorApplication.playModeStateChanged += ModeChanged;
-        }
-
-        private void OnDisable() {
-            EditorApplication.hierarchyChanged -= VerifyState;
-            EditorApplication.playModeStateChanged -= ModeChanged;
-        }
-
-        private static void VerifyState() {
-            foreach (var area in FindObjectsOfType<BakedLightArea>(false)) {
-                if (area.GetComponentsInChildren<BakedLightGroup>(false).Length < 1) {
-                    new GameObject {
-                        transform = { position = area.transform.position, parent = area.transform },
-                        name = $"LightGroup;{area.name}"
-                    }.AddComponent<BakedLightGroup>();
-                }
-                foreach (var group in area.GetComponentsInChildren<BakedLightGroup>(false)) {
-                    while (group.GetComponentsInChildren<BakedLightConfig>(false).Length < 2) {
-                        new GameObject {
-                            transform = { position = group.transform.position, parent = group.transform },
-                            name = $"{group.name};{group.GetComponentsInChildren<BakedLightConfig>(false).Length}"
-                        }.AddComponent<BakedLightConfig>();
-                    }
-                }
-            }
-        }
-
-        private void ModeChanged(PlayModeStateChange state) {
-            if (state == PlayModeStateChange.EnteredEditMode)
-                SetDefaults(FindObjectsOfType<BakedLightArea>(false));
+            _filtering = (FilterMode)EditorPrefs.GetInt("VDB.Filtering", 1);
+            _crunchCompression = EditorPrefs.GetBool("VDB.CrunchCompression", false);
+            _compressionQuality = EditorPrefs.GetInt("VDB.CompressionQuality", 50);
         }
 
         private void OnGUI() {
-            var areas = FindObjectsOfType<BakedLightArea>(false);
-            EditorGUILayout.LabelField("General", EditorStyles.boldLabel);
-            BeginHorizontal();
-            if (Button("Bake All", ExpandWidth(false))) {
-                PopulateFields(areas);
-                PreBakeLightmaps(areas);
-                BakeLightmaps(areas);
-                PostBakeLightmaps(areas);
-                FetchLightmaps(areas);
-                SetDefaults(FindObjectsOfType<BakedLightArea>(false));
-                ClearProgressBar();
-                AssetDatabase.Refresh();
-            }
-            if (Button("Refresh All", ExpandWidth(false))) {
-                SetDefaults(FindObjectsOfType<BakedLightArea>(false));
-                ClearProgressBar();
-                AssetDatabase.Refresh();
-            }
-            EndHorizontal();
-            EditorGUILayout.Space();
-            EditorGUILayout.LabelField("Statistics", EditorStyles.boldLabel);
-            Label($"Areas: {FindObjectsOfType<BakedLightArea>(false).Length}");
-            Label($"Groups: {FindObjectsOfType<BakedLightGroup>(false).Length}");
-            Label($"Configs: {FindObjectsOfType<BakedLightConfig>(false).Length}");
-            Label($"Instances: {FindObjectsOfType<BakedLightInstance>(false).Length}");
-            EditorGUILayout.Space();
-            EditorGUILayout.LabelField("Debug", EditorStyles.boldLabel);
-            if (Button("Populate Fields", ExpandWidth(false))) {
-                PopulateFields(areas);
-                ClearProgressBar();
-                AssetDatabase.Refresh();
-            }
-            if (Button("Quick Bake", ExpandWidth(false))) {
-                PreBakeLightmaps(areas);
-                PostBakeLightmaps(areas);
-                ClearProgressBar();
-                AssetDatabase.Refresh();
+            GUILayout.Label("Lightmap Import Settings", EditorStyles.boldLabel);
+            EditorGUI.BeginChangeCheck();
+            _filtering = (FilterMode)EditorGUILayout.EnumPopup("Filter Mode", _filtering);
+            if (EditorGUI.EndChangeCheck()) EditorPrefs.SetInt("VDB.Filtering", (int)_filtering);
+            EditorGUI.BeginChangeCheck();
+            _crunchCompression = EditorGUILayout.Toggle("Crunch Compression", _crunchCompression);
+            if (EditorGUI.EndChangeCheck()) EditorPrefs.SetBool("VDB.CrunchCompression", _crunchCompression);
+            if (_crunchCompression) {
+                EditorGUI.BeginChangeCheck();
+                _compressionQuality = EditorGUILayout.IntSlider("Compression Quality", _compressionQuality, 0, 100);
+                if (EditorGUI.EndChangeCheck()) EditorPrefs.SetInt("VDB.CompressionQuality", _compressionQuality);
             }
         }
 
-        [MenuItem("VRC Dynamic Bakery/Bake Selected &b")]
+        [MenuItem("VRC Dynamic Bakery/Bake Selected Lightmaps &b", priority = 1)]
         private static void BakeSelected() {
-            var areas = new List<BakedLightArea>();
-            areas.AddRange(Selection.transforms.SelectMany(it => it.GetComponentsInChildren<BakedLightArea>()));
+            var areas = Selection.transforms.SelectMany(it => it.GetComponentsInChildren<BakedLightArea>()).ToHashSet();
+            if (areas.Count == 0)
+                areas = Selection.transforms.SelectMany(it => it.GetComponentsInParent<BakedLightArea>()).ToHashSet();
             PopulateFields(areas.ToArray());
             PreBakeLightmaps(areas.ToArray());
             BakeLightmaps(areas.ToArray());
             PostBakeLightmaps(areas.ToArray());
             FetchLightmaps(areas.ToArray());
-            SetDefaults(FindObjectsOfType<BakedLightArea>(false));
-            ClearProgressBar();
+            RefreshAll();
+        }
+
+        [MenuItem("VRC Dynamic Bakery/Refresh All Lightmaps &r", priority = 2)]
+        private static void RefreshAll() {
+            var areas = FindObjectsOfType<BakedLightArea>(false);
+            SetDefaults(areas);
+            EditorUtility.ClearProgressBar();
             AssetDatabase.Refresh();
         }
 
-        [MenuItem("VRC Dynamic Bakery/Refresh Lightmaps &r")]
-        private static void RefreshAll() {
-            SetDefaults(FindObjectsOfType<BakedLightArea>(false));
-            ClearProgressBar();
-            AssetDatabase.Refresh();
+        [MenuItem("VRC Dynamic Bakery/Flip Selected Lightmaps &f", priority = 3)]
+        private static void FlipSelected() {
+            var areas = Selection.transforms.SelectMany(it => it.GetComponentsInChildren<BakedLightArea>()).ToHashSet();
+            if (areas.Count == 0)
+                areas = Selection.transforms.SelectMany(it => it.GetComponentsInParent<BakedLightArea>()).ToHashSet();
+            foreach (var area in areas) {
+                var selection = area.selection + 1;
+                area.Block ??= new MaterialPropertyBlock();
+                area.Activate(selection % area.GetComponentsInChildren<BakedLightInstance>(false).Length, true);
+            }
+        }
+
+        [MenuItem("VRC Dynamic Bakery/Bake Light Probes", priority = 4)]
+        private static void BakeLightProbes() {
+            var areas = FindObjectsOfType<BakedLightArea>(false);
+            PreBakeLightmaps(areas);
+            PostBakeLightmaps(areas);
+            RefreshAll();
+        }
+
+        [MenuItem("VRC Dynamic Bakery/Update All Lightmaps", priority = 5)]
+        private static void UpdateAllLightmaps() {
+            var assets = AssetDatabase.FindAssets("", new[] { "Assets/VRCDynamicBakery" });
+            AssetDatabase.StartAssetEditing();
+            try {
+                var idx = 0;
+                foreach (var path in assets.Select(AssetDatabase.GUIDToAssetPath)) {
+                    EditorUtility.DisplayProgressBar("Updating Lightmaps", path, (float)idx / assets.Length);
+                    var lightmap = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+                    var importer = AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(lightmap)) as TextureImporter;
+                    if (importer == null) continue;
+                    importer.filterMode = _filtering;
+                    importer.crunchedCompression = _crunchCompression;
+                    importer.compressionQuality = _compressionQuality;
+                    importer.SaveAndReimport();
+                    ++idx;
+                }
+            }
+            finally {
+                AssetDatabase.StopAssetEditing();
+                EditorUtility.ClearProgressBar();
+            }
+            RefreshAll();
+        }
+
+        [MenuItem("VRC Dynamic Bakery/Purge Unused Lightmaps", priority = 6)]
+        private static void PurgeUnusedLightmaps() {
+            var usedMaps = FindObjectsOfType<BakedLightInstance>(true)
+                .SelectMany(it => it.lightmaps)
+                .Select(AssetDatabase.GetAssetPath)
+                .ToHashSet();
+            var assets = AssetDatabase.FindAssets("", new[] { "Assets/VRCDynamicBakery" });
+            AssetDatabase.StartAssetEditing();
+            try {
+                var idx = 0;
+                foreach (var path in assets.Select(AssetDatabase.GUIDToAssetPath)) {
+                    EditorUtility.DisplayProgressBar("Purging Lightmaps", path, (float)idx / assets.Length);
+                    if (!usedMaps.Contains(path)) AssetDatabase.DeleteAsset(path);
+                    ++idx;
+                }
+            }
+            finally {
+                AssetDatabase.StopAssetEditing();
+                EditorUtility.ClearProgressBar();
+            }
         }
 
         //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -216,6 +229,7 @@ namespace Editor {
                 probe.gameObject.SetActive(false);
             foreach (var area in areas.Where(it => it != null)) {
                 foreach (var config in area.GetComponentsInChildren<BakedLightConfig>(false)) {
+                    config.SetObjectVisibility(true);
                     config.PipelineSetObjectVisibility(false);
                     config.PipelineSetLightVisibility(false);
                 }
@@ -231,7 +245,7 @@ namespace Editor {
                     renderer.gameObject.SetActive(true);
                 var instances = area.GetComponentsInChildren<BakedLightInstance>(false).ToList();
                 for (var idx = instances.Count - 1; idx >= 0; --idx) {
-                    DisplayProgressBar(
+                    EditorUtility.DisplayProgressBar(
                         "[VRCDynamicBakery]",
                         $"Baking Lightmaps ({current++} of {totalInstances})",
                         0.5F
@@ -252,6 +266,13 @@ namespace Editor {
                             AssetDatabase.GetAssetPath(LightmapSettings.lightmaps[lightmapIndex].lightmapColor),
                             color
                         );
+                        var lightmap = AssetDatabase.LoadAssetAtPath<Texture2D>(color);
+                        var importer = AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(lightmap)) as TextureImporter;
+                        if (importer == null) continue;
+                        importer.filterMode = _filtering;
+                        importer.crunchedCompression = _crunchCompression;
+                        importer.compressionQuality = _compressionQuality;
+                        importer.SaveAndReimport();
                     }
                     foreach (var config in instance.configs.Where(it => it != null)) {
                         config.PipelineSetObjectVisibility(false);
